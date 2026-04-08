@@ -6,6 +6,7 @@ import smtplib
 from email.message import EmailMessage
 
 from src.config import EmailConfig
+from src.dedup import normalize_doi
 from src.models import Digest, Paper
 from src.text_cleaning import clean_abstract, clean_text
 
@@ -26,14 +27,16 @@ def render_text_section(title: str, papers: list[Paper]) -> str:
         return "\n".join(lines)
     for index, paper in enumerate(papers, 1):
         abstract = clean_abstract(paper.abstract)
+        doi = display_doi(paper)
+        url = display_url(paper)
         lines.extend(
             [
                 f"{index}. {clean_text(paper.title)}",
                 f"   Category: {paper.category}",
                 f"   Year: {paper.year or 'Unknown'}",
                 f"   Venue: {clean_text(paper.venue) or 'Unknown'}",
-                f"   DOI: {clean_text(paper.doi) or 'N/A'}",
-                f"   URL: {clean_text(paper.url) or 'N/A'}",
+                f"   DOI: {doi or 'N/A'}",
+                f"   URL: {url or 'N/A'}",
                 f"   Abstract: {snippet(abstract, 700) or 'N/A'}",
                 f"   Why: {clean_text(paper.why_recommended) or 'Relevant to the seed collection.'}",
                 "",
@@ -68,7 +71,8 @@ def render_html_section(title: str, papers: list[Paper]) -> str:
     items = []
     for paper in papers:
         title_html = html.escape(clean_text(paper.title))
-        url = html.escape(clean_text(paper.url or ""))
+        url = html.escape(display_url(paper))
+        doi = display_doi(paper)
         title_line = f'<a href="{url}">{title_html}</a>' if url else title_html
         abstract = clean_abstract(paper.abstract)
         items.append(
@@ -76,7 +80,7 @@ def render_html_section(title: str, papers: list[Paper]) -> str:
   <h3>{title_line}</h3>
   <p><span class="category">{html.escape(paper.category)}</span></p>
   <p class="meta">{html.escape(str(paper.year or "Unknown"))} - {html.escape(clean_text(paper.venue) or "Unknown venue")}</p>
-  <p><strong>DOI:</strong> {html.escape(clean_text(paper.doi) or "N/A")}</p>
+  <p><strong>DOI:</strong> {html.escape(doi or "N/A")}</p>
   <p><strong>URL:</strong> {f'<a href="{url}">{url}</a>' if url else "N/A"}</p>
   <p><strong>Abstract:</strong> {html.escape(snippet(abstract, 900) or "N/A")}</p>
   <p><strong>Why recommended:</strong> {html.escape(clean_text(paper.why_recommended) or "Relevant to the seed collection.")}</p>
@@ -113,3 +117,11 @@ def snippet(text: str, max_chars: int) -> str:
     if len(compact) <= max_chars:
         return compact
     return compact[: max_chars - 3].rstrip() + "..."
+
+
+def display_doi(paper: Paper) -> str:
+    return normalize_doi(paper.doi)
+
+
+def display_url(paper: Paper) -> str:
+    return clean_text(paper.url)
