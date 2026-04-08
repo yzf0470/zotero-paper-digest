@@ -30,11 +30,15 @@ class RankingConfig:
     llm_max_items: int
     prefer_new: bool
     min_new_results_before_classics: int
+    target_new_results: int
+    target_classic_results: int
+    required_domain_terms: list[str]
 
 
 @dataclass
 class ClassicsConfig:
     min_age_years: int
+    max_age_years: int
 
 
 @dataclass
@@ -105,9 +109,9 @@ def load_config(path: str | Path) -> AppConfig:
             or list(discovery.get("sources", ["openalex", "crossref"])),
         ),
         ranking=RankingConfig(
-            shortlist_size=int(os.getenv("SHORTLIST_SIZE", ranking.get("shortlist_size", 25))),
+            shortlist_size=int(os.getenv("SHORTLIST_SIZE", ranking.get("shortlist_size", 20))),
             llm_enabled=_env_bool("LLM_ENABLED", bool(ranking.get("llm_enabled", True))),
-            llm_max_items=int(os.getenv("LLM_MAX_ITEMS", ranking.get("llm_max_items", 25))),
+            llm_max_items=int(os.getenv("LLM_MAX_ITEMS", ranking.get("llm_max_items", 20))),
             prefer_new=_env_bool("PREFER_NEW", bool(ranking.get("prefer_new", True))),
             min_new_results_before_classics=int(
                 os.getenv(
@@ -115,9 +119,14 @@ def load_config(path: str | Path) -> AppConfig:
                     ranking.get("min_new_results_before_classics", 3),
                 )
             ),
+            target_new_results=int(os.getenv("TARGET_NEW_RESULTS", ranking.get("target_new_results", 7))),
+            target_classic_results=int(os.getenv("TARGET_CLASSIC_RESULTS", ranking.get("target_classic_results", 3))),
+            required_domain_terms=_split_env_list(os.getenv("REQUIRED_DOMAIN_TERMS"))
+            or list(ranking.get("required_domain_terms", [])),
         ),
         classics=ClassicsConfig(
-            min_age_years=int(os.getenv("CLASSIC_MIN_AGE_YEARS", classics.get("min_age_years", 5)))
+            min_age_years=int(os.getenv("CLASSIC_MIN_AGE_YEARS", classics.get("min_age_years", 2))),
+            max_age_years=int(os.getenv("CLASSIC_MAX_AGE_YEARS", classics.get("max_age_years", 8))),
         ),
         email=EmailConfig(
             from_email=os.getenv("EMAIL_FROM", email.get("from_email", "")),

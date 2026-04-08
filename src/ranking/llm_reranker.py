@@ -19,6 +19,7 @@ def rerank_with_deepseek(
     *,
     max_items: int,
     enabled: bool,
+    required_domain_terms: list[str] | None = None,
 ) -> tuple[list[Paper], dict[str, Any]]:
     stats = {
         "llm_enabled": enabled,
@@ -32,7 +33,7 @@ def rerank_with_deepseek(
         return papers, stats
 
     items = papers[:max_items]
-    prompt = build_prompt(items, seed_summary)
+    prompt = build_prompt(items, seed_summary, required_domain_terms or [])
     stats["llm_triggered"] = True
     stats["llm_items"] = len(items)
     stats["estimated_input_tokens"] = estimate_tokens(prompt)
@@ -59,7 +60,7 @@ def rerank_with_deepseek(
         return papers, stats
 
 
-def build_prompt(papers: list[Paper], seed_summary: str) -> str:
+def build_prompt(papers: list[Paper], seed_summary: str, required_domain_terms: list[str]) -> str:
     compact_items = []
     for index, paper in enumerate(papers):
         compact_items.append(
@@ -74,9 +75,19 @@ def build_prompt(papers: list[Paper], seed_summary: str) -> str:
                 "category": paper.category,
             }
         )
+    if required_domain_terms:
+        domain_instruction = (
+            "Hard domain rule: recommend only papers matching these configured domain terms or clear synonyms. "
+            "Strongly down-rank CT-only, ultrasound-only, X-ray-only, or unrelated medical imaging papers "
+            "even if they share broad venues.\n"
+            f"Configured domain terms: {', '.join(required_domain_terms[:20])}\n"
+        )
+    else:
+        domain_instruction = "No hard domain terms were configured; infer the domain from the seed summary.\n"
     return (
         "You rerank scholarly paper recommendations for one researcher's Zotero seed collection. "
         "Prioritize precision over recall. Do not invent metadata. Return only valid JSON.\n"
+        f"{domain_instruction}"
         f"Seed summary: {seed_summary[:1200]}\n"
         "For each item, return index, relevance_score from 0 to 10, novelty_score from 0 to 10, "
         "category NEW or CLASSIC, and a short reason under 35 words.\n"
@@ -87,14 +98,15 @@ def build_prompt(papers: list[Paper], seed_summary: str) -> str:
 
 def call_deepseek(prompt: str, api_key: str) -> str:
     payload = {
-        "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        "model": os.getenv("DEEPSEEK_MODEL", "deepseek-reasoner"),
         "messages": [
             {"role": "system", "content": "You are a concise scholarly recommendation reranker."},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.1,
         "response_format": {"type": "json_object"},
     }
+    if payload["model"] != "deepseek-reasoner":
+        payload["temperature"] = 0.1
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     def request() -> requests.Response:

@@ -4,6 +4,7 @@ import re
 import unicodedata
 
 from src.models import Paper
+from src.text_cleaning import clean_abstract, clean_text
 
 
 def normalize_doi(doi: str | None) -> str:
@@ -65,6 +66,8 @@ def deduplicate_candidates(candidates: list[Paper], existing_papers: list[Paper]
 
 
 def has_basic_metadata(paper: Paper) -> bool:
+    paper.title = clean_text(paper.title)
+    paper.abstract = clean_abstract(paper.abstract)
     if not normalize_title(paper.title):
         return False
     if not paper.year:

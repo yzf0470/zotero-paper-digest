@@ -1,5 +1,5 @@
 from src.models import Paper
-from src.ranking.local_ranker import build_seed_profile, score_paper, select_shortlist
+from src.ranking.local_ranker import build_seed_profile, filter_by_required_domain, score_paper, select_shortlist
 
 
 def test_score_paper_uses_multiple_relevance_signals() -> None:
@@ -47,3 +47,14 @@ def test_select_shortlist_orders_by_score() -> None:
     shortlist = select_shortlist([weak, strong], seeds, shortlist_size=1, recent_days=90)
 
     assert shortlist[0].title == strong.title
+
+
+def test_filter_by_required_domain_keeps_mri_and_drops_ct_only() -> None:
+    candidates = [
+        Paper(title="Cardiac MRI reconstruction with low latency", abstract="magnetic resonance imaging", year=2025),
+        Paper(title="Low-dose CT reconstruction", abstract="computed tomography denoising", year=2025),
+    ]
+
+    filtered = filter_by_required_domain(candidates, ["MRI", "magnetic resonance imaging", "CMR"])
+
+    assert [paper.title for paper in filtered] == ["Cardiac MRI reconstruction with low latency"]

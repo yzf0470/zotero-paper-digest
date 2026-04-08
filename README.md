@@ -12,9 +12,10 @@ It does not write to Zotero. You decide manually whether to import recommended p
 - Falls back to classic papers when not enough high-quality recent papers are found.
 - Deduplicates by DOI, normalized title, and external IDs.
 - Scores candidates locally before any LLM call.
-- Optionally sends one batched DeepSeek rerank call for only the shortlist.
+- Optionally sends one batched DeepSeek rerank call for only the shortlist. The default model is `deepseek-reasoner`.
 - Sends an HTML and plain-text email digest.
 - Saves generated digest files and logs as GitHub Actions artifacts.
+- Keeps a small GitHub Actions cached recommendation history so the same paper is not recommended again.
 
 ## Quick Start With GitHub Actions
 
@@ -83,14 +84,25 @@ discovery:
   sources: [openalex, crossref]
 
 ranking:
-  shortlist_size: 25
+  shortlist_size: 20
   llm_enabled: true
-  llm_max_items: 25
+  llm_max_items: 20
   prefer_new: true
   min_new_results_before_classics: 3
+  target_new_results: 7
+  target_classic_results: 3
+  required_domain_terms:
+    - MRI
+    - magnetic resonance imaging
+    - MR imaging
+    - cardiac MRI
+    - CMR
+    - fMRI
+    - diffusion MRI
 
 classics:
-  min_age_years: 5
+  min_age_years: 2
+  max_age_years: 8
 
 email:
   from_email: ""
@@ -118,8 +130,9 @@ Local ranking considers:
 - Recency boost for new papers.
 - Citation count as a quality signal, especially for classic papers.
 - Metadata completeness, such as DOI, abstract, and venue.
+- A configurable hard domain filter. The default keeps MRI / magnetic resonance imaging / CMR / fMRI / diffusion MRI related papers and drops CT-only or unrelated imaging papers.
 
-DeepSeek reranking is optional and intentionally small. When enabled, the job sends only the shortlist and a compact seed summary. It does not run an agent loop, does not call tools, and does not fetch full text.
+DeepSeek reranking is optional and intentionally small. When enabled, the job sends only the shortlist and a compact seed summary. It does not run an agent loop, does not call tools, and does not fetch full text. By default it uses `deepseek-reasoner`; set `DEEPSEEK_MODEL=deepseek-chat` if you want lower latency.
 
 To disable DeepSeek:
 
@@ -137,11 +150,12 @@ outputs/digest.json
 outputs/digest.html
 outputs/digest.txt
 outputs/run.log
+.state/recommended_history.json
 ```
 
 GitHub Actions uploads these as artifacts even if the job fails after partial output generation.
 
-Logs include candidate counts, shortlist count, whether LLM rerank was triggered, and estimated token usage.
+Logs include candidate counts, shortlist count, whether LLM rerank was triggered, and estimated token usage. These stats are kept in logs/artifacts, not in the email body.
 
 ## Optional Local Debugging
 
@@ -165,6 +179,7 @@ Set environment variables first, or copy `.env.example` into your shell environm
 - No full text is fetched.
 - No embeddings are used in the MVP.
 - DeepSeek failures fall back to local ranking so the daily job can still complete.
+- The recommendation history is stored with GitHub Actions cache. If caches are manually deleted, old recommendations may appear again.
 
 ## Development
 

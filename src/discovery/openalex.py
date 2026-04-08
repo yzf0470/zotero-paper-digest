@@ -9,6 +9,7 @@ import requests
 from src.dedup import normalize_doi
 from src.models import Paper
 from src.retry import with_retries
+from src.text_cleaning import clean_abstract, clean_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,10 +31,17 @@ class OpenAlexClient:
             include_related=False,
         )
 
-    def discover_classics(self, seeds: list[Paper], min_age_years: int, max_results: int) -> list[Paper]:
+    def discover_classics(
+        self,
+        seeds: list[Paper],
+        min_age_years: int,
+        max_age_years: int,
+        max_results: int,
+    ) -> list[Paper]:
         cutoff_year = dt.date.today().year - min_age_years
+        start_year = dt.date.today().year - max_age_years
         params_extra = {
-            "filter": f"to_publication_date:{cutoff_year}-12-31",
+            "filter": f"from_publication_date:{start_year}-01-01,to_publication_date:{cutoff_year}-12-31",
             "sort": "cited_by_count:desc",
         }
         return self._search_from_seeds(
@@ -149,7 +157,7 @@ class OpenAlexClient:
 
 
 def work_to_paper(work: dict[str, Any]) -> Paper | None:
-    title = work.get("title") or work.get("display_name") or ""
+    title = clean_text(work.get("title") or work.get("display_name") or "")
     if not title:
         return None
     primary_location = work.get("primary_location") or {}
@@ -169,7 +177,7 @@ def work_to_paper(work: dict[str, Any]) -> Paper | None:
     ]
     return Paper(
         title=title,
-        abstract=abstract_from_inverted_index(work.get("abstract_inverted_index") or {}),
+        abstract=clean_abstract(abstract_from_inverted_index(work.get("abstract_inverted_index") or {})),
         doi=doi,
         year=work.get("publication_year"),
         venue=source.get("display_name", "") if source else "",

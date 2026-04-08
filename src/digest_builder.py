@@ -8,16 +8,25 @@ from src.config import AppConfig
 from src.dedup import deduplicate_candidates
 from src.discovery.crossref import CrossrefClient
 from src.discovery.openalex import OpenAlexClient
+from src.history import filter_previously_recommended
 from src.models import Digest, Paper
 from src.ranking.llm_reranker import rerank_with_deepseek
-from src.ranking.local_ranker import extract_keywords, is_classic, is_recent, score_candidates, select_shortlist
+from src.ranking.local_ranker import (
+    extract_keywords,
+    filter_by_required_domain,
+    is_classic_in_window,
+    is_recent,
+    score_candidates,
+    select_shortlist,
+)
 from src.zotero_client import ZoteroClient
 
 LOGGER = logging.getLogger(__name__)
 QUALITY_THRESHOLD = 2.0
 
 
-def build_digest(config: AppConfig, zotero_api_key: str) -> Digest:
+def build_digest(config: AppConfig, zotero_api_key: str, recommendation_history: set[str] | None = None) -> Digest:
+    recommendation_history = recommendation_history or set()
     zotero = ZoteroClient(config.zotero.library_type, config.zotero.library_id, zotero_api_key)
     seeds = zotero.fetch_seed_papers(config.zotero.collection_keys, config.zotero.max_seeds)
     if not seeds:
@@ -25,6 +34,8 @@ def build_digest(config: AppConfig, zotero_api_key: str) -> Digest:
 
     recent_candidates = discover_candidates(config, seeds, classics=False)
     recent_deduped = deduplicate_candidates(recent_candidates, seeds)
+    recent_deduped = filter_previously_recommended(recent_deduped, recommendation_history)
+    recent_deduped = filter_by_required_domain(recent_deduped, config.ranking.required_domain_terms)
     recent_shortlist = select_shortlist(
         recent_deduped,
         seeds,
@@ -40,18 +51,24 @@ def build_digest(config: AppConfig, zotero_api_key: str) -> Digest:
     classic_candidates: list[Paper] = []
     classic_deduped: list[Paper] = []
     classic_shortlist: list[Paper] = []
-    fallback_triggered = local_new_count < config.ranking.min_new_results_before_classics
+    fallback_triggered = (
+        local_new_count < config.ranking.min_new_results_before_classics
+        or config.ranking.target_classic_results > 0
+    )
     if fallback_triggered:
         classic_candidates = discover_candidates(config, seeds, classics=True)
         classic_deduped = deduplicate_candidates(classic_candidates, seeds + recent_shortlist)
+        classic_deduped = filter_previously_recommended(classic_deduped, recommendation_history)
+        classic_deduped = filter_by_required_domain(classic_deduped, config.ranking.required_domain_terms)
         ranked_classics = score_candidates(classic_deduped, seeds, config.discovery.recent_days)
         classic_shortlist = [
             paper
             for paper in ranked_classics
-            if is_classic(paper, config.classics.min_age_years) and paper.score >= QUALITY_THRESHOLD
-        ][: max(config.ranking.min_new_results_before_classics - local_new_count, 3)]
+            if is_classic_in_window(paper, config.classics.min_age_years, config.classics.max_age_years)
+            and paper.score >= QUALITY_THRESHOLD
+        ][: config.ranking.target_classic_results]
 
-    recent_slots = max(0, config.ranking.shortlist_size - len(classic_shortlist))
+    recent_slots = min(config.ranking.target_new_results, max(0, config.ranking.shortlist_size - len(classic_shortlist)))
     combined = (recent_shortlist[:recent_slots] + classic_shortlist)[: config.ranking.shortlist_size]
     seed_summary = summarize_seeds(seeds)
     reranked, llm_stats = rerank_with_deepseek(
@@ -59,27 +76,32 @@ def build_digest(config: AppConfig, zotero_api_key: str) -> Digest:
         seed_summary,
         max_items=config.ranking.llm_max_items,
         enabled=config.ranking.llm_enabled,
+        required_domain_terms=config.ranking.required_domain_terms,
     )
 
     new_papers = [
         paper
         for paper in reranked
         if paper.category == "NEW" and is_recent(paper, config.discovery.recent_days) and paper.score >= QUALITY_THRESHOLD
-    ]
+    ][: config.ranking.target_new_results]
     classic_papers = [
         paper
         for paper in reranked
-        if (paper.category == "CLASSIC" or is_classic(paper, config.classics.min_age_years))
+        if is_classic_in_window(paper, config.classics.min_age_years, config.classics.max_age_years)
         and paper.score >= QUALITY_THRESHOLD
-    ]
+    ][: config.ranking.target_classic_results]
 
     if len(new_papers) < config.ranking.min_new_results_before_classics:
-        needed = config.ranking.min_new_results_before_classics - len(new_papers)
+        needed = min(
+            config.ranking.min_new_results_before_classics - len(new_papers),
+            max(0, config.ranking.target_classic_results - len(classic_papers)),
+        )
         existing_titles = {paper.title for paper in new_papers + classic_papers}
         extra_classics = [
             paper
             for paper in classic_shortlist
-            if paper.title not in existing_titles and is_classic(paper, config.classics.min_age_years)
+            if paper.title not in existing_titles
+            and is_classic_in_window(paper, config.classics.min_age_years, config.classics.max_age_years)
         ][:needed]
         classic_papers.extend(extra_classics)
 
@@ -108,7 +130,7 @@ def discover_candidates(config: AppConfig, seeds: list[Paper], *, classics: bool
     if "openalex" in sources:
         client = OpenAlexClient(mailto=mailto)
         discovered = (
-            client.discover_classics(seeds, config.classics.min_age_years, max_per_source)
+            client.discover_classics(seeds, config.classics.min_age_years, config.classics.max_age_years, max_per_source)
             if classics
             else client.discover_recent(seeds, config.discovery.recent_days, max_per_source)
         )
@@ -118,7 +140,7 @@ def discover_candidates(config: AppConfig, seeds: list[Paper], *, classics: bool
     if "crossref" in sources:
         client = CrossrefClient(mailto=mailto)
         discovered = (
-            client.discover_classics(seeds, config.classics.min_age_years, max_per_source)
+            client.discover_classics(seeds, config.classics.min_age_years, config.classics.max_age_years, max_per_source)
             if classics
             else client.discover_recent(seeds, config.discovery.recent_days, max_per_source)
         )

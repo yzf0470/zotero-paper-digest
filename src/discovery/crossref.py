@@ -8,6 +8,7 @@ import requests
 
 from src.models import Paper
 from src.retry import with_retries
+from src.text_cleaning import clean_abstract, clean_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,12 +28,19 @@ class CrossrefClient:
             relation_reason="recent Crossref bibliographic match",
         )
 
-    def discover_classics(self, seeds: list[Paper], min_age_years: int, max_results: int) -> list[Paper]:
+    def discover_classics(
+        self,
+        seeds: list[Paper],
+        min_age_years: int,
+        max_age_years: int,
+        max_results: int,
+    ) -> list[Paper]:
         cutoff_year = dt.date.today().year - min_age_years
+        start_year = dt.date.today().year - max_age_years
         return self._search_from_seeds(
             seeds,
             max_results,
-            filters=f"until-pub-date:{cutoff_year}-12-31,type:journal-article",
+            filters=f"from-pub-date:{start_year}-01-01,until-pub-date:{cutoff_year}-12-31,type:journal-article",
             relation_reason="older Crossref bibliographic match",
         )
 
@@ -85,7 +93,7 @@ class CrossrefClient:
 
 
 def work_to_paper(work: dict[str, Any]) -> Paper | None:
-    title = " ".join(work.get("title") or []).strip()
+    title = clean_text(" ".join(work.get("title") or []))
     if not title:
         return None
     venue = " ".join(work.get("container-title") or []).strip()
@@ -97,7 +105,7 @@ def work_to_paper(work: dict[str, Any]) -> Paper | None:
     doi = work.get("DOI", "") or ""
     return Paper(
         title=title,
-        abstract=strip_crossref_markup(work.get("abstract", "") or ""),
+        abstract=clean_abstract(work.get("abstract", "") or ""),
         doi=doi,
         year=extract_year(work),
         venue=venue,
@@ -119,4 +127,4 @@ def extract_year(work: dict[str, Any]) -> int | None:
 
 
 def strip_crossref_markup(text: str) -> str:
-    return text.replace("<jats:p>", "").replace("</jats:p>", "").strip()
+    return clean_abstract(text)

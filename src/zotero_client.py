@@ -8,6 +8,7 @@ import requests
 
 from src.models import Paper
 from src.retry import with_retries
+from src.text_cleaning import clean_abstract, clean_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class ZoteroClient:
         item_type = data.get("itemType", "")
         if item_type in {"attachment", "note", "annotation"}:
             return None
-        title = str(data.get("title", "")).strip()
+        title = clean_text(data.get("title", ""))
         if not title:
             return None
         venue = (
@@ -95,7 +96,7 @@ class ZoteroClient:
         tags = [tag.get("tag", "") for tag in data.get("tags", []) if tag.get("tag")]
         return Paper(
             title=title,
-            abstract=str(data.get("abstractNote", "") or ""),
+            abstract=clean_abstract(data.get("abstractNote", "")),
             doi=str(data.get("DOI", "") or ""),
             year=_extract_year(str(data.get("date", "") or "")),
             venue=str(venue or ""),

@@ -10,14 +10,25 @@ discovery:
   sources: [openalex, crossref]
 
 ranking:
-  shortlist_size: 25
+  shortlist_size: 20
   llm_enabled: true
-  llm_max_items: 25
+  llm_max_items: 20
   prefer_new: true
   min_new_results_before_classics: 3
+  target_new_results: 7
+  target_classic_results: 3
+  required_domain_terms:
+    - MRI
+    - magnetic resonance imaging
+    - MR imaging
+    - cardiac MRI
+    - CMR
+    - fMRI
+    - diffusion MRI
 
 classics:
-  min_age_years: 5
+  min_age_years: 2
+  max_age_years: 8
 
 email:
   from_email: ""

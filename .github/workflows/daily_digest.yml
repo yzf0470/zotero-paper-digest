@@ -34,8 +34,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore recommendation history
+        uses: actions/cache@v4
+        with:
+          path: .state/recommended_history.json
+          key: zotero-paper-digest-history-${{ github.run_id }}
+          restore-keys: |
+            zotero-paper-digest-history-
+
       - name: Run digest job
-        run: python -m src.main --config config.yaml --output-dir outputs
+        run: python -m src.main --config config.yaml --output-dir outputs --history-file .state/recommended_history.json
 
       - name: Save logs and digest artifacts
         if: always()
@@ -47,4 +55,5 @@ jobs:
             outputs/digest.json
             outputs/digest.html
             outputs/digest.txt
+            .state/recommended_history.json
           if-no-files-found: warn

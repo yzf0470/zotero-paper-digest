@@ -68,6 +68,28 @@ def score_candidates(candidates: list[Paper], seeds: list[Paper], recent_days: i
     return sorted(candidates, key=lambda paper: paper.score, reverse=True)
 
 
+def filter_by_required_domain(candidates: list[Paper], required_terms: list[str]) -> list[Paper]:
+    if not required_terms:
+        return candidates
+    normalized_terms = [normalize_text(term) for term in required_terms if normalize_text(term)]
+    return [paper for paper in candidates if matches_required_domain(paper, normalized_terms)]
+
+
+def matches_required_domain(paper: Paper, normalized_terms: list[str]) -> bool:
+    haystack = normalize_text(
+        " ".join([paper.title, paper.abstract, paper.venue, " ".join(paper.concepts), " ".join(paper.tags)])
+    )
+    if any(term in haystack for term in normalized_terms):
+        return True
+    if re.search(r"\b(cardiac\s+)?mri\b", haystack):
+        return True
+    if re.search(r"\b(fmri|cmr|dwi|dmri)\b", haystack):
+        return True
+    if "magnetic resonance" in haystack:
+        return True
+    return False
+
+
 def score_paper(paper: Paper, profile: SeedProfile, recent_days: int) -> tuple[float, str]:
     signals: list[str] = []
     score = 0.0
@@ -138,6 +160,13 @@ def is_classic(paper: Paper, min_age_years: int) -> bool:
     if not paper.year:
         return False
     return paper.year <= dt.date.today().year - min_age_years
+
+
+def is_classic_in_window(paper: Paper, min_age_years: int, max_age_years: int) -> bool:
+    if not paper.year:
+        return False
+    current_year = dt.date.today().year
+    return current_year - max_age_years <= paper.year <= current_year - min_age_years
 
 
 def extract_keywords(text: str) -> list[str]:
